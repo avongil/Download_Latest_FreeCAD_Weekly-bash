@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # FreeCAD Weekly AppImage Updater for Arch Linux + XFCE
 # This script downloads the latest FreeCAD weekly AppImage and integrates it into the system
 
@@ -119,34 +118,44 @@ ln -s "$APPIMAGE_PATH" "$SYMLINK_PATH"
 echo "Created symlink: $SYMLINK_PATH -> $APPIMAGE_NAME"
 echo
 
-# Extract icon from AppImage
-echo "Extracting icon..."
+# Extract icon and desktop file from AppImage
+echo "Extracting icon and desktop file..."
 cd /tmp
-"$SYMLINK_PATH" --appimage-extract "*.svg" 2>/dev/null || true
-"$SYMLINK_PATH" --appimage-extract "freecad.png" 2>/dev/null || true
+rm -rf squashfs-root
 
-# Find and copy icon
-ICON_FILE=""
-if [ -f "squashfs-root/freecad.svg" ]; then
-    ICON_FILE="squashfs-root/freecad.svg"
-    cp "$ICON_FILE" "$ICON_DIR/freecad-weekly.svg"
-    ICON_PATH="freecad-weekly"
-elif [ -f "squashfs-root/freecad.png" ]; then
-    ICON_FILE="squashfs-root/freecad.png"
-    cp "$ICON_FILE" "$ICON_DIR/freecad-weekly.png"
+"$SYMLINK_PATH" --appimage-extract "org.freecad.FreeCAD.svg" 2>/dev/null || true
+"$SYMLINK_PATH" --appimage-extract "org.freecad.FreeCAD.desktop" 2>/dev/null || true
+
+# Copy icon
+if [ -f "squashfs-root/org.freecad.FreeCAD.svg" ]; then
+    cp "squashfs-root/org.freecad.FreeCAD.svg" "$ICON_DIR/freecad-weekly.svg"
+    echo "Icon extracted successfully"
     ICON_PATH="freecad-weekly"
 else
     echo "Warning: Could not extract icon, using default"
     ICON_PATH="application-x-executable"
 fi
 
-# Cleanup extracted files
-rm -rf squashfs-root
-
-echo "Creating desktop entry..."
-
-# Create .desktop file
-cat > "$DESKTOP_FILE" << EOF
+# Use the extracted desktop file as a base if available
+if [ -f "squashfs-root/org.freecad.FreeCAD.desktop" ]; then
+    echo "Using extracted desktop file as base"
+    cp "squashfs-root/org.freecad.FreeCAD.desktop" "$DESKTOP_FILE"
+    # Update the Exec line to use our symlink
+    sed -i "s|^Exec=.*|Exec=$SYMLINK_PATH %f|" "$DESKTOP_FILE"
+    # Update the Name to indicate it's the weekly build
+    sed -i "s|^Name=.*|Name=FreeCAD Weekly|" "$DESKTOP_FILE"
+    # Update the Icon
+    sed -i "s|^Icon=.*|Icon=$ICON_PATH|" "$DESKTOP_FILE"
+    # Add version info
+    if ! grep -q "X-AppImage-Version" "$DESKTOP_FILE"; then
+        echo "X-AppImage-Version=$LATEST_TAG" >> "$DESKTOP_FILE"
+    else
+        sed -i "s|^X-AppImage-Version=.*|X-AppImage-Version=$LATEST_TAG|" "$DESKTOP_FILE"
+    fi
+else
+    echo "Creating desktop entry from scratch..."
+    # Create .desktop file
+    cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Name=FreeCAD Weekly
 GenericName=CAD Application
@@ -162,6 +171,10 @@ StartupWMClass=FreeCAD
 Keywords=CAD;3D;Parametric;Engineering;
 X-AppImage-Version=$LATEST_TAG
 EOF
+fi
+
+# Cleanup extracted files
+rm -rf squashfs-root
 
 # Update desktop database
 if command -v update-desktop-database &> /dev/null; then
